@@ -54,6 +54,9 @@ function App() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [startTime, setStartTime] = useState(null);
+  const [endTime, setEndTime] = useState(null);
+  const [showWarning, setShowWarning] = useState(false);
+  const [warningMessage, setWarningMessage] = useState('');
 
   const getRandomImage = useCallback(() => {
     const categories = Object.keys(imageData);
@@ -77,6 +80,8 @@ function App() {
     setGameOver(false);
     setGameStarted(true);
     setStartTime(new Date());
+    setEndTime(null);
+    setShowWarning(false);
     getRandomImage();
   };
 
@@ -100,16 +105,40 @@ function App() {
       
       getRandomImage();
     } else {
-      const endTime = new Date();
-      const timeTaken = Math.floor((endTime - startTime) / 1000);
+      const now = new Date();
+      setEndTime(now);
+      const timeTaken = Math.min(Math.floor((now - startTime) / 1000), 60);
       
       setScoreHistory(prev => {
-        const newHistory = [{ score, timeTaken, timestamp: endTime }, ...prev];
-        return newHistory.slice(0, 10);
+        // Prevent duplicate scores in history
+        const isDuplicate = prev.some(item => 
+          item.score === score && 
+          item.timeTaken === timeTaken &&
+          new Date(item.timestamp).toDateString() === now.toDateString()
+        );
+        
+        if (!isDuplicate) {
+          const newHistory = [{ score, timeTaken, timestamp: now }, ...prev];
+          return newHistory.slice(0, 10);
+        }
+        return prev;
       });
       setGameOver(true);
     }
   };
+
+  // Show warning when time is running low
+  useEffect(() => {
+    if (timeLeft === 10) {
+      setWarningMessage('Hurry! Only 10 seconds left!');
+      setShowWarning(true);
+      setTimeout(() => setShowWarning(false), 3000);
+    } else if (timeLeft === 5) {
+      setWarningMessage('Last 5 seconds! Quick!');
+      setShowWarning(true);
+      setTimeout(() => setShowWarning(false), 3000);
+    }
+  }, [timeLeft]);
 
   useEffect(() => {
     const savedHighScore = localStorage.getItem('highScore');
@@ -136,18 +165,35 @@ function App() {
         setTimeLeft(prevTime => prevTime - 1);
       }, 1000);
     } else if (timeLeft === 0) {
-      const endTime = new Date();
-      const timeTaken = Math.floor((endTime - startTime) / 1000);
+      const now = new Date();
+      setEndTime(now);
+      const timeTaken = Math.min(Math.floor((now - startTime) / 1000), 60);
       
       setScoreHistory(prev => {
-        const newHistory = [{ score, timeTaken, timestamp: endTime }, ...prev];
-        return newHistory.slice(0, 10);
+        const isDuplicate = prev.some(item => 
+          item.score === score && 
+          item.timeTaken === timeTaken &&
+          new Date(item.timestamp).toDateString() === now.toDateString()
+        );
+        
+        if (!isDuplicate) {
+          const newHistory = [{ score, timeTaken, timestamp: now }, ...prev];
+          return newHistory.slice(0, 10);
+        }
+        return prev;
       });
       setGameOver(true);
     }
 
     return () => clearInterval(timer);
   }, [gameStarted, gameOver, timeLeft, score, startTime]);
+
+  const getTimeTaken = () => {
+    if (endTime && startTime) {
+      return Math.min(Math.floor((endTime - startTime) / 1000), 60);
+    }
+    return 0;
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white overflow-hidden relative">
@@ -177,6 +223,24 @@ function App() {
           />
         ))}
       </div>
+
+      {/* Warning message */}
+      <AnimatePresence>
+        {showWarning && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+            className="fixed top-4 left-0 right-0 z-50 flex justify-center"
+          >
+            <div className="bg-red-500/90 backdrop-blur-md px-6 py-3 rounded-full shadow-lg border border-red-300/50 flex items-center">
+              <span className="mr-2">⚠️</span>
+              <span className="font-bold">{warningMessage}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main layout with sidebar */}
       <div className="relative z-10 flex min-h-screen">
@@ -213,7 +277,7 @@ function App() {
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.05 }}
-                        className="bg-gray-700/50 rounded-lg p-4 border border-gray-600/30"
+                        className="bg-gray-700/50 rounded-lg p-4 border border-gray-600/30 hover:border-indigo-400/50 transition-colors"
                       >
                         <div className="flex justify-between items-center">
                           <div className="text-xl font-bold text-yellow-300">{item.score}</div>
@@ -325,11 +389,9 @@ function App() {
                       <div className="text-2xl">
                         High score: <span className="font-bold text-green-300">{highScore}</span>
                       </div>
-                      {scoreHistory[0] && (
-                        <div className="text-lg text-gray-400">
-                          Time taken: <span className="text-indigo-300">{scoreHistory[0].timeTaken}s</span>
-                        </div>
-                      )}
+                      <div className="text-lg text-gray-400">
+                        Time taken: <span className="text-indigo-300">{getTimeTaken()}s</span>
+                      </div>
                     </div>
                     <div className="flex justify-center gap-4">
                       <motion.button
@@ -364,28 +426,61 @@ function App() {
                       </p>
                     </motion.div>
                     
-                    {/* Current image */}
-                    <motion.div
-                      className="bg-gray-800/50 backdrop-blur-md p-6 rounded-2xl border border-indigo-600/30 flex items-center justify-center min-h-[300px] shadow-lg overflow-hidden"
-                      whileHover={{ scale: 1.01 }}
-                    >
-                      <AnimatePresence mode="wait">
-                        <motion.img
-                          key={currentImage}
-                          src={currentImage}
-                          alt="Current"
-                          className="max-h-[280px] max-w-full object-contain rounded-lg"
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.9 }}
-                          transition={{ duration: 0.5, type: 'spring' }}
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = "https://via.placeholder.com/500x300?text=Image+Not+Found";
-                          }}
-                        />
-                      </AnimatePresence>
-                    </motion.div>
+                    {/* Current image with timer visualization */}
+                    <div className="relative">
+                      {/* Timer visualization - left bar */}
+                      <motion.div 
+                        className="absolute left-0 top-0 h-full w-2 bg-indigo-600/30 rounded-l-full overflow-hidden"
+                        initial={{ scaleY: 1 }}
+                        animate={{ scaleY: timeLeft / 60 }}
+                        transition={{ duration: 1, ease: "linear" }}
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-b from-indigo-400 to-purple-600"></div>
+                      </motion.div>
+                      
+                      {/* Timer visualization - right bar */}
+                      <motion.div 
+                        className="absolute right-0 top-0 h-full w-2 bg-indigo-600/30 rounded-r-full overflow-hidden"
+                        initial={{ scaleY: 1 }}
+                        animate={{ scaleY: timeLeft / 60 }}
+                        transition={{ duration: 1, ease: "linear" }}
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-b from-indigo-400 to-purple-600"></div>
+                      </motion.div>
+                      
+                      <motion.div
+                        className="bg-gray-800/50 backdrop-blur-md p-6 rounded-2xl border border-indigo-600/30 flex items-center justify-center min-h-[300px] shadow-lg overflow-hidden relative"
+                        whileHover={{ scale: 1.01 }}
+                      >
+                        {/* Floating time indicator */}
+                        {timeLeft <= 15 && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="absolute top-4 right-4 bg-red-500/80 text-white px-3 py-1 rounded-full text-sm font-bold"
+                          >
+                            {timeLeft}s
+                          </motion.div>
+                        )}
+                        
+                        <AnimatePresence mode="wait">
+                          <motion.img
+                            key={currentImage}
+                            src={currentImage}
+                            alt="Current"
+                            className="max-h-[280px] max-w-full object-contain rounded-lg"
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            transition={{ duration: 0.5, type: 'spring' }}
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = "https://via.placeholder.com/500x300?text=Image+Not+Found";
+                            }}
+                          />
+                        </AnimatePresence>
+                      </motion.div>
+                    </div>
                     
                     {/* Categories */}
                     <motion.div 
